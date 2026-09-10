@@ -1,0 +1,4 @@
+bucket         = "SEU-BUCKET-terraform-state"
+key            = "eks/voting-app/dev/terraform.tfstate"
+region         = "us-east-1"
+dynamodb_table = "terraform-locks"

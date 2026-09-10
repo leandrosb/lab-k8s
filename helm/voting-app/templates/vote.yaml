@@ -1,0 +1,85 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "voting-app.fullname" . }}-vote
+  labels:
+    {{- include "voting-app.labels" . | nindent 4 }}
+    app.kubernetes.io/component: frontend-vote
+spec:
+  replicas: {{ .Values.vote.replicaCount }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: {{ include "voting-app.name" . }}
+      app.kubernetes.io/instance: {{ .Release.Name }}
+      app.kubernetes.io/component: frontend-vote
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: {{ include "voting-app.name" . }}
+        app.kubernetes.io/instance: {{ .Release.Name }}
+        app.kubernetes.io/component: frontend-vote
+    spec:
+      containers:
+        - name: vote
+          image: "{{ .Values.vote.image.repository }}:{{ .Values.vote.image.tag }}"
+          imagePullPolicy: {{ .Values.vote.image.pullPolicy }}
+          ports:
+            - containerPort: 80
+              name: http
+          env:
+            - name: REDIS_HOST
+              value: {{ include "voting-app.fullname" . }}-redis
+          resources:
+            {{- toYaml .Values.vote.resources | nindent 12 }}
+          readinessProbe:
+            httpGet:
+              path: /
+              port: 80
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /
+              port: 80
+            initialDelaySeconds: 15
+            periodSeconds: 20
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "voting-app.fullname" . }}-vote
+  labels:
+    {{- include "voting-app.labels" . | nindent 4 }}
+    app.kubernetes.io/component: frontend-vote
+spec:
+  selector:
+    app.kubernetes.io/name: {{ include "voting-app.name" . }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/component: frontend-vote
+  ports:
+    - port: {{ .Values.vote.service.port }}
+      targetPort: 80
+  type: {{ .Values.vote.service.type }}
+---
+{{- if .Values.vote.autoscaling.enabled }}
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: {{ include "voting-app.fullname" . }}-vote
+  labels:
+    {{- include "voting-app.labels" . | nindent 4 }}
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: {{ include "voting-app.fullname" . }}-vote
+  minReplicas: {{ .Values.vote.autoscaling.minReplicas }}
+  maxReplicas: {{ .Values.vote.autoscaling.maxReplicas }}
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: {{ .Values.vote.autoscaling.targetCPUUtilizationPercentage }}
+{{- end }}
