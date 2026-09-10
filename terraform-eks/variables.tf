@@ -19,7 +19,10 @@ variable "cluster_name" {
 variable "cluster_version" {
   description = "Versão do Kubernetes no EKS"
   type        = string
-  default     = "1.30"
+  # 1.30 saiu de suporte (extended support terminou em 2026). Antes de aplicar,
+  # confirme as versões atualmente suportadas com:
+  #   aws eks describe-cluster-versions --query 'clusterVersions[*].[clusterVersion,status,endOfStandardSupportDate]' --output table
+  default = "1.35"
 }
 
 variable "vpc_cidr" {

@@ -69,18 +69,54 @@ terraform output -raw configure_kubectl | bash
 aws eks update-kubeconfig --region <região> --name <cluster_name>-<environment>
 ```
 
-## 5. Deploy da aplicação via Helm
+## 5. Instalar as CRDs do Gateway API (passo único por cluster)
 
-Com o cluster pronto (nós `Ready`, addon do EBS CSI Driver ativo):
+O `terraform apply` já instalou o AWS Load Balancer Controller, mas as CRDs
+padrão do Gateway API (`Gateway`, `GatewayClass`, `HTTPRoute`) não fazem
+parte do chart do controller — vêm do projeto upstream:
+
+```bash
+kubectl apply -f https://github.com/kubernetes-sigs/gateway-api/releases/download/v1.3.0/standard-install.yaml
+# verifique se há uma versão mais recente em:
+# https://github.com/kubernetes-sigs/gateway-api/releases
+```
+
+Se o controller já estava rodando antes desse apply, reinicie-o para
+garantir que ele detecte o suporte a Gateway API:
+
+```bash
+kubectl rollout restart deployment aws-load-balancer-controller -n kube-system
+kubectl rollout status  deployment aws-load-balancer-controller -n kube-system
+```
+
+## 6. Deploy da aplicação via Helm
+
+Com o cluster pronto (nós `Ready`, addon do EBS CSI Driver ativo, controller
+do Load Balancer rodando):
 
 ```bash
 kubectl get nodes
-kubectl get pods -n kube-system | grep ebs-csi
+kubectl get pods -n kube-system | grep -E "ebs-csi|aws-load-balancer-controller"
 
+terraform output -raw acm_self_signed_certificate_arn
+```
+
+```bash
 helm install voting-app ../helm/voting-app \
   --namespace voting-app --create-namespace \
-  --set postgres.persistence.storageClassName=gp3
+  --set postgres.persistence.storageClassName=gp3 \
+  --set gateway.certificateArn="<ARN do output acima>"
 ```
+
+Depois de alguns minutos (provisionamento do ALB):
+
+```bash
+kubectl get gateway -n voting-app voting-app-voting-app-gateway
+```
+
+Quando o campo `ADDRESS` aparecer, acesse `https://<endereço>:443/` (vote) e
+`https://<endereço>:8443/` (result). O certificado é autoassinado — o
+navegador vai alertar sobre isso; é esperado (veja a nota abaixo).
 
 ## Decisões e observações importantes
 
@@ -104,6 +140,23 @@ helm install voting-app ../helm/voting-app \
   um bom candidato a Spot por manter estado de fila em processamento; vote,
   result e o próprio node group misto merecem mais atenção antes de mover
   tudo para Spot).
+- **Gateway API + AWS Load Balancer Controller**: a própria documentação da
+  AWS declara que essa combinação *"não é recomendada para produção ainda"*
+  (é uma feature relativamente nova, GA em 2026). Adequado para teste/estudo;
+  reavalie antes de usar em produção.
+- **Certificado autoassinado importado no ACM**: só existe porque não há
+  domínio público disponível para validação DNS. O Gateway referencia o
+  certificado pelo ARN diretamente (não por hostname), o que só é possível
+  porque o controller suporta essa "configuração estática" de certificado.
+  Navegadores vão acusar conexão não confiável — normal para autoassinado.
+  Assim que houver um domínio real, troque por um certificado ACM emitido
+  (`aws_acm_certificate` com `domain_name` + validação DNS via Route 53) e
+  passe a usar hostnames reais nos Listeners (habilita também a descoberta
+  automática de certificado por hostname, sem precisar do ARN estático).
+- **Vote e result na mesma ALB, em portas diferentes**: sem hostname não dá
+  para rotear por domínio, então a diferenciação é por porta (443 e 8443).
+  Com um domínio real, o ideal é usar hostnames (`vote.dominio.com`,
+  `result.dominio.com`) todos na porta 443 padrão.
 
 ## Destruindo o ambiente
 

@@ -33,3 +33,8 @@ output "configure_kubectl" {
   description = "Comando para atualizar o kubeconfig local e apontar para o cluster"
   value       = "aws eks update-kubeconfig --region ${var.aws_region} --name ${module.eks.cluster_name}"
 }
+
+output "acm_self_signed_certificate_arn" {
+  description = "ARN do certificado autoassinado importado no ACM — usar em gateway.certificateArn no Helm chart"
+  value       = aws_acm_certificate.voting_app.arn
+}

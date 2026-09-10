@@ -1,7 +1,7 @@
 aws_region      = "us-east-1"
 environment     = "dev"
 cluster_name    = "voting-app"
-cluster_version = "1.30"
+cluster_version = "1.35" # confirme a versão atual com `aws eks describe-cluster-versions`
 
 vpc_cidr = "10.0.0.0/16"
 azs      = ["us-east-1a", "us-east-1b", "us-east-1c"]

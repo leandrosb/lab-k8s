@@ -13,7 +13,7 @@ vote:
     pullPolicy: IfNotPresent
   replicaCount: 2
   service:
-    type: LoadBalancer   # troque para NodePort em cluster local (kind/minikube)
+    type: ClusterIP   # exposto via Gateway API (ALB); veja a seção "gateway" abaixo
     port: 80
   resources:
     requests:
@@ -38,7 +38,7 @@ result:
     pullPolicy: IfNotPresent
   replicaCount: 2
   service:
-    type: LoadBalancer
+    type: ClusterIP
     port: 80
   resources:
     requests:
@@ -121,3 +121,29 @@ postgres:
     username: postgres
     password: postgres
     database: postgres
+
+# -----------------------------------------------------------------------
+# gateway — expõe vote e result via Gateway API (AWS Load Balancer
+# Controller), com TLS. Requer as CRDs do Gateway API e o AWS Load Balancer
+# Controller já instalados no cluster (ver terraform-eks/README.md).
+# -----------------------------------------------------------------------
+gateway:
+  enabled: true
+  # GatewayClass é cluster-scoped (compartilhada). Deixe true na primeira
+  # instalação; se outro release já criou uma GatewayClass com esse nome,
+  # mude para false.
+  createGatewayClass: true
+  gatewayClassName: aws-alb
+  scheme: internet-facing   # ou "internal" para expor só dentro da VPC
+  # Hostnames usados pelo AWS Load Balancer Controller para localizar
+  # automaticamente o certificado certo no ACM (descoberta por hostname).
+  # Precisam bater com os SANs (dns_names) do certificado gerado em
+  # terraform-eks/gateway.tf. Não precisam resolver de verdade em DNS
+  # público — só o Host/SNI da requisição precisa bater (veja o README
+  # para testar com curl --connect-to ou /etc/hosts).
+  voteHostname: vote.voting-app.local
+  resultHostname: result.voting-app.local
+  # Sem domínio público, vote e result ficam em portas HTTPS separadas no
+  # mesmo ALB (mais simples do que rotear por hostname sem DNS real).
+  votePort: 443
+  resultPort: 8443

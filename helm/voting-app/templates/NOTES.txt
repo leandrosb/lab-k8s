@@ -11,10 +11,38 @@ Componentes:
 Para verificar o status dos pods:
   kubectl get pods -n {{ .Release.Namespace }} -l app.kubernetes.io/instance={{ .Release.Name }}
 
-Para descobrir o endereço externo do vote e do result:
+{{- if .Values.gateway.enabled }}
+
+Acesso via Gateway API (ALB) com TLS:
+
+  kubectl get gateway -n {{ .Release.Namespace }} {{ include "voting-app.fullname" . }}-gateway
+
+Quando o campo ADDRESS aparecer (o DNS do ALB), o acesso exige o hostname
+certo no Host/SNI da requisição (não dá para acessar direto pelo IP/DNS do
+ALB sem isso — o roteamento é por hostname):
+
+  ALB=<endereço do campo ADDRESS acima>
+
+  curl -k --connect-to {{ .Values.gateway.voteHostname }}:{{ .Values.gateway.votePort }}:$ALB:{{ .Values.gateway.votePort }} \
+    https://{{ .Values.gateway.voteHostname }}:{{ .Values.gateway.votePort }}/
+
+  curl -k --connect-to {{ .Values.gateway.resultHostname }}:{{ .Values.gateway.resultPort }}:$ALB:{{ .Values.gateway.resultPort }} \
+    https://{{ .Values.gateway.resultHostname }}:{{ .Values.gateway.resultPort }}/
+
+Para testar no navegador, adicione ao /etc/hosts (resolva o IP do ALB antes
+com `dig +short $ALB`):
+  <IP-do-ALB>  {{ .Values.gateway.voteHostname }}
+  <IP-do-ALB>  {{ .Values.gateway.resultHostname }}
+
+O certificado é autoassinado (sem domínio público) — o navegador vai avisar
+que a conexão não é confiável. Isso é esperado; aceite o aviso.
+{{- else }}
+
+Services vote/result não estão atrás do Gateway (gateway.enabled=false).
+Para descobrir o endereço externo:
   kubectl get svc -n {{ .Release.Namespace }} {{ include "voting-app.fullname" . }}-vote {{ include "voting-app.fullname" . }}-result
 
-Se o EXTERNAL-IP ficar <pending> (cluster sem LoadBalancer, ex.: kind/minikube),
-use port-forward:
+Se o EXTERNAL-IP ficar <pending>, use port-forward:
   kubectl port-forward -n {{ .Release.Namespace }} svc/{{ include "voting-app.fullname" . }}-vote 8080:80
   kubectl port-forward -n {{ .Release.Namespace }} svc/{{ include "voting-app.fullname" . }}-result 8081:80
+{{- end }}
