@@ -1,0 +1,17 @@
+apiVersion: v2
+name: voting-app
+description: >
+  Helm chart para a aplicação de votação (vote, redis, worker, db, result) —
+  arquitetura de referência com Python (vote), .NET (worker), Redis, PostgreSQL
+  e o serviço result.
+type: application
+version: 0.1.0
+appVersion: "1.0.0"
+keywords:
+  - voting-app
+  - redis
+  - postgresql
+  - example
+home: https://github.com/dockersamples/example-voting-app
+maintainers:
+  - name: Leandro

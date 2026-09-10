@@ -1,0 +1,123 @@
+# =============================================================================
+# values.yaml — defaults do chart voting-app
+# Sobrescreva por ambiente com: helm install -f values-prod.yaml ...
+# =============================================================================
+
+# -----------------------------------------------------------------------
+# vote — frontend Python para registro de votos
+# -----------------------------------------------------------------------
+vote:
+  image:
+    repository: dockersamples/examplevotingapp_vote
+    tag: latest
+    pullPolicy: IfNotPresent
+  replicaCount: 2
+  service:
+    type: LoadBalancer   # troque para NodePort em cluster local (kind/minikube)
+    port: 80
+  resources:
+    requests:
+      cpu: 100m
+      memory: 64Mi
+    limits:
+      cpu: 250m
+      memory: 128Mi
+  autoscaling:
+    enabled: false
+    minReplicas: 2
+    maxReplicas: 6
+    targetCPUUtilizationPercentage: 70
+
+# -----------------------------------------------------------------------
+# result — frontend de visualização dos resultados em tempo real
+# -----------------------------------------------------------------------
+result:
+  image:
+    repository: dockersamples/examplevotingapp_result
+    tag: latest
+    pullPolicy: IfNotPresent
+  replicaCount: 2
+  service:
+    type: LoadBalancer
+    port: 80
+  resources:
+    requests:
+      cpu: 100m
+      memory: 64Mi
+    limits:
+      cpu: 250m
+      memory: 128Mi
+  autoscaling:
+    enabled: false
+    minReplicas: 2
+    maxReplicas: 6
+    targetCPUUtilizationPercentage: 70
+
+# -----------------------------------------------------------------------
+# worker — consome o Redis e consolida os votos no PostgreSQL (.NET)
+# -----------------------------------------------------------------------
+worker:
+  image:
+    repository: dockersamples/examplevotingapp_worker
+    tag: latest
+    pullPolicy: IfNotPresent
+  # Mantenha em 1: o worker não tem lock distribuído para a consolidação;
+  # múltiplas réplicas podem duplicar/corromper contagens no Postgres.
+  replicaCount: 1
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 256Mi
+
+# -----------------------------------------------------------------------
+# redis — fila/cache temporário entre vote e worker
+# -----------------------------------------------------------------------
+redis:
+  image:
+    repository: redis
+    tag: alpine
+    pullPolicy: IfNotPresent
+  replicaCount: 1
+  service:
+    port: 6379
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      cpu: 200m
+      memory: 128Mi
+
+# -----------------------------------------------------------------------
+# postgres (db) — armazenamento persistente dos resultados consolidados
+# -----------------------------------------------------------------------
+postgres:
+  image:
+    repository: postgres
+    tag: 15-alpine
+    pullPolicy: IfNotPresent
+  service:
+    port: 5432
+  resources:
+    requests:
+      cpu: 250m
+      memory: 256Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+  persistence:
+    enabled: true
+    size: 5Gi
+    # Vazio = usa o StorageClass default do cluster (ex.: gp3 via EBS CSI no EKS)
+    storageClassName: ""
+  # Se definido, o chart usa esse Secret já existente (chaves POSTGRES_USER,
+  # POSTGRES_PASSWORD, POSTGRES_DB) em vez de criar um a partir de `auth` abaixo.
+  # Recomendado em produção (Secret vindo de Vault/External Secrets/Sealed Secrets).
+  existingSecret: ""
+  auth:
+    username: postgres
+    password: postgres
+    database: postgres

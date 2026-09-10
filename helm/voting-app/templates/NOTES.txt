@@ -1,0 +1,20 @@
+Voting App instalado no namespace: {{ .Release.Namespace }}
+Release: {{ .Release.Name }}
+
+Componentes:
+  - vote:   {{ include "voting-app.fullname" . }}-vote   ({{ .Values.vote.replicaCount }} réplica(s))
+  - result: {{ include "voting-app.fullname" . }}-result ({{ .Values.result.replicaCount }} réplica(s))
+  - worker: {{ include "voting-app.fullname" . }}-worker ({{ .Values.worker.replicaCount }} réplica(s))
+  - redis:  {{ include "voting-app.fullname" . }}-redis
+  - db:     {{ include "voting-app.fullname" . }}-db
+
+Para verificar o status dos pods:
+  kubectl get pods -n {{ .Release.Namespace }} -l app.kubernetes.io/instance={{ .Release.Name }}
+
+Para descobrir o endereço externo do vote e do result:
+  kubectl get svc -n {{ .Release.Namespace }} {{ include "voting-app.fullname" . }}-vote {{ include "voting-app.fullname" . }}-result
+
+Se o EXTERNAL-IP ficar <pending> (cluster sem LoadBalancer, ex.: kind/minikube),
+use port-forward:
+  kubectl port-forward -n {{ .Release.Namespace }} svc/{{ include "voting-app.fullname" . }}-vote 8080:80
+  kubectl port-forward -n {{ .Release.Namespace }} svc/{{ include "voting-app.fullname" . }}-result 8081:80
