@@ -28,7 +28,7 @@ spec:
               name: http
           env:
             - name: REDIS_HOST
-              value: {{ include "voting-app.fullname" . }}-redis
+              value: redis
           resources:
             {{- toYaml .Values.vote.resources | nindent 12 }}
           readinessProbe:
@@ -51,6 +51,15 @@ metadata:
   labels:
     {{- include "voting-app.labels" . | nindent 4 }}
     app.kubernetes.io/component: frontend-vote
+  {{- if .Values.awsLoadBalancer.enabled }}
+  annotations:
+    service.beta.kubernetes.io/aws-load-balancer-type: "external"
+    service.beta.kubernetes.io/aws-load-balancer-nlb-target-type: "ip"
+    service.beta.kubernetes.io/aws-load-balancer-scheme: {{ .Values.awsLoadBalancer.scheme | quote }}
+    service.beta.kubernetes.io/aws-load-balancer-ssl-cert: {{ required "awsLoadBalancer.certificateArn é obrigatório quando awsLoadBalancer.enabled=true (ARN do certificado ACM)" .Values.awsLoadBalancer.certificateArn | quote }}
+    service.beta.kubernetes.io/aws-load-balancer-ssl-ports: "443"
+    service.beta.kubernetes.io/aws-load-balancer-backend-protocol: "tcp"
+  {{- end }}
 spec:
   selector:
     app.kubernetes.io/name: {{ include "voting-app.name" . }}

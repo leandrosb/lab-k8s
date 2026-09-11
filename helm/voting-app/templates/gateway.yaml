@@ -92,4 +92,35 @@ spec:
     - backendRefs:
         - name: {{ include "voting-app.fullname" . }}-result
           port: {{ .Values.result.service.port }}
+---
+# Sem isto, o controller tenta rotear por target-type "instance" (via
+# NodePort), que não existe em Services ClusterIP — resulta em
+# "TargetGroup port is empty ... service must be of type NodePort or
+# LoadBalancer". targetType "ip" roteia direto para o IP do pod (via VPC
+# CNI), compatível com ClusterIP.
+apiVersion: gateway.k8s.aws/v1beta1
+kind: TargetGroupConfiguration
+metadata:
+  name: {{ include "voting-app.fullname" . }}-vote-tg
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "voting-app.labels" . | nindent 4 }}
+spec:
+  targetReference:
+    name: {{ include "voting-app.fullname" . }}-vote
+  defaultConfiguration:
+    targetType: ip
+---
+apiVersion: gateway.k8s.aws/v1beta1
+kind: TargetGroupConfiguration
+metadata:
+  name: {{ include "voting-app.fullname" . }}-result-tg
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "voting-app.labels" . | nindent 4 }}
+spec:
+  targetReference:
+    name: {{ include "voting-app.fullname" . }}-result
+  defaultConfiguration:
+    targetType: ip
 {{- end }}

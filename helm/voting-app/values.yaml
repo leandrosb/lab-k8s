@@ -13,8 +13,8 @@ vote:
     pullPolicy: IfNotPresent
   replicaCount: 2
   service:
-    type: ClusterIP   # exposto via Gateway API (ALB); veja a seção "gateway" abaixo
-    port: 80
+    type: LoadBalancer   # NLB próprio com TLS (veja a seção "awsLoadBalancer" abaixo)
+    port: 443            # porta externa (TLS); a porta do container continua 80
   resources:
     requests:
       cpu: 100m
@@ -38,8 +38,8 @@ result:
     pullPolicy: IfNotPresent
   replicaCount: 2
   service:
-    type: ClusterIP
-    port: 80
+    type: LoadBalancer
+    port: 443
   resources:
     requests:
       cpu: 100m
@@ -123,12 +123,31 @@ postgres:
     database: postgres
 
 # -----------------------------------------------------------------------
-# gateway — expõe vote e result via Gateway API (AWS Load Balancer
-# Controller), com TLS. Requer as CRDs do Gateway API e o AWS Load Balancer
-# Controller já instalados no cluster (ver terraform-eks/README.md).
+# awsLoadBalancer — caminho padrão de exposição: vote e result como
+# Service type LoadBalancer, cada um virando um NLB próprio (2 LBs), com
+# TLS terminado direto no NLB via AWS Load Balancer Controller. Mais simples
+# e mais maduro que Gateway API — sem CRDs extras, sem hostname para
+# descoberta de certificado. Requer o AWS Load Balancer Controller instalado
+# (ver terraform-eks/README.md).
+# -----------------------------------------------------------------------
+awsLoadBalancer:
+  enabled: true
+  scheme: internet-facing   # ou "internal" para expor só dentro da VPC
+  # ARN do certificado ACM (obrigatório se enabled=true). Saída do Terraform:
+  #   terraform output -raw acm_self_signed_certificate_arn
+  certificateArn: ""
+
+# -----------------------------------------------------------------------
+# gateway — alternativa via Gateway API (Gateway + HTTPRoute), desligada por
+# padrão. Exige mais peças (CRDs do Gateway API, TargetGroupConfiguration
+# para target-type ip) e a própria AWS ainda não recomenda essa combinação
+# para produção. Vale reconsiderar com um domínio real (permite hostnames
+# de verdade e um único ALB para os dois serviços). Se habilitar, desligue
+# awsLoadBalancer.enabled e volte vote.service.type/result.service.type
+# para ClusterIP.
 # -----------------------------------------------------------------------
 gateway:
-  enabled: true
+  enabled: false
   # GatewayClass é cluster-scoped (compartilhada). Deixe true na primeira
   # instalação; se outro release já criou uma GatewayClass com esse nome,
   # mude para false.

@@ -42,7 +42,7 @@ spec:
 apiVersion: v1
 kind: Service
 metadata:
-  name: {{ include "voting-app.fullname" . }}-redis
+  name: redis
   labels:
     {{- include "voting-app.labels" . | nindent 4 }}
     app.kubernetes.io/component: cache

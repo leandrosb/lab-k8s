@@ -4,10 +4,15 @@ Chart para deploy da aplicação de votação (vote, redis, worker, db, result).
 
 ## Instalação
 
+Por padrão, `vote` e `result` sobem como `Service type: LoadBalancer` (um NLB
+cada) com TLS terminado no próprio NLB — exige o ARN de um certificado ACM
+(veja `terraform-eks/README.md` para gerar um autoassinado, se não tiver
+domínio próprio):
+
 ```bash
 helm install voting-app ./voting-app \
-  --namespace voting-app \
-  --create-namespace
+  --namespace voting-app --create-namespace \
+  --set awsLoadBalancer.certificateArn="$(terraform output -raw acm_self_signed_certificate_arn)"
 ```
 
 ## Upgrade
@@ -78,9 +83,10 @@ voting-app/
     ├── redis.yaml              # Deployment + Service
     ├── postgres-secret.yaml    # Secret (condicional a existingSecret)
     ├── postgres.yaml           # Service headless + StatefulSet (volumeClaimTemplates)
-    ├── vote.yaml               # Deployment + Service + HPA (opcional)
-    ├── result.yaml             # Deployment + Service + HPA (opcional)
+    ├── vote.yaml               # Deployment + Service (NLB+TLS) + HPA (opcional)
+    ├── result.yaml             # Deployment + Service (NLB+TLS) + HPA (opcional)
     ├── worker.yaml             # Deployment (sem Service)
+    ├── gateway.yaml            # Gateway API (alternativa, desligada por padrão)
     └── NOTES.txt
 ```
 
@@ -115,12 +121,64 @@ Isso descarta os dados existentes no Postgres — tudo bem em dev/teste, mas
 planeje uma migração de dados (`pg_dump`/`pg_restore`) se algum dia isso for
 aplicado sobre uma base com dados reais.
 
-## Gateway API + TLS (vote e result)
+## NLB + TLS (vote e result) — caminho padrão
 
-Com `gateway.enabled: true` (default), `vote` e `result` deixam de ser
-`Service type: LoadBalancer` e passam a ser `ClusterIP`, expostos por trás de
-um único ALB via **Gateway API** (`Gateway` + `HTTPRoute`), provisionado pelo
-AWS Load Balancer Controller.
+Por padrão (`awsLoadBalancer.enabled: true`), `vote` e `result` são
+`Service type: LoadBalancer` — cada um vira um **NLB próprio** (2 Load
+Balancers), com TLS terminado direto no NLB via anotações do AWS Load
+Balancer Controller. Sem CRDs extras, sem hostname para descoberta de
+certificado — é o caminho mais maduro e simples para expor os dois serviços.
+
+**Pré-requisito no cluster**: AWS Load Balancer Controller instalado (ver
+`terraform-eks/README.md`). Diferente do Gateway API, **não precisa** das
+CRDs upstream do Gateway API — o suporte a `Service type: LoadBalancer` é a
+funcionalidade mais antiga e estável do controller.
+
+```bash
+helm install voting-app ./voting-app \
+  --namespace voting-app --create-namespace \
+  --set postgres.persistence.storageClassName=gp3 \
+  --set awsLoadBalancer.certificateArn="$(terraform output -raw acm_self_signed_certificate_arn)"
+```
+
+```bash
+kubectl get svc -n voting-app voting-app-voting-app-vote voting-app-voting-app-result
+```
+
+Quando o `EXTERNAL-IP` (DNS do NLB) aparecer em cada um, o acesso é direto —
+sem truques de hostname/SNI, porque cada serviço tem seu próprio NLB:
+
+```bash
+curl -k https://<EXTERNAL-IP-do-vote>/
+curl -k https://<EXTERNAL-IP-do-result>/
+```
+
+**Como funciona por baixo dos panos**: as anotações
+`service.beta.kubernetes.io/aws-load-balancer-ssl-cert` (ARN direto, sem
+ambiguidade de hostname) e `aws-load-balancer-nlb-target-type: ip` (mira
+direto no IP do pod via VPC CNI, resolvendo o mesmo problema que travou a
+tentativa com Gateway API) fazem o NLB terminar TLS e encaminhar tráfego
+puro (`backend-protocol: tcp`) para a porta 80 do container.
+
+**Certificado autoassinado**: `curl -k` e o navegador vão acusar "conexão
+não confiável" — esperado, não é erro de configuração.
+
+**Trade-off aceito**: 2 NLBs em vez de 1 ALB compartilhado — mais simples de
+depurar, mas cada um tem seu próprio custo e endereço (sem um domínio para
+unificar, isso não faz diferença prática).
+
+## Gateway API + TLS — alternativa (desligada por padrão)
+
+O chart também inclui uma implementação via **Gateway API** (`Gateway` +
+`HTTPRoute`, um único ALB compartilhado), desligada por padrão
+(`gateway.enabled: false`). Vale reconsiderar essa opção se um dia houver um
+domínio real disponível (permite hostnames de verdade, um ALB só, e a
+própria AWS recomenda oficialmente contra usar hostnames fictícios como os
+deste exercício).
+
+Para religar: `--set gateway.enabled=true --set awsLoadBalancer.enabled=false`
+(e ajuste `vote.service.type`/`result.service.type` de volta para
+`ClusterIP`).
 
 **Pré-requisitos no cluster** (ver `terraform-eks/README.md`):
 - AWS Load Balancer Controller instalado (>= v2.14.0, suporte a Gateway API L7/ALB).
@@ -128,12 +186,6 @@ AWS Load Balancer Controller.
 - Um certificado no ACM cujos SANs batem com `gateway.voteHostname` e
   `gateway.resultHostname` (o `terraform-eks/gateway.tf` já gera e importa um
   autoassinado com esses SANs por padrão).
-
-```bash
-helm install voting-app ./voting-app \
-  --namespace voting-app --create-namespace \
-  --set postgres.persistence.storageClassName=gp3
-```
 
 ```bash
 kubectl get gateway -n voting-app voting-app-voting-app-gateway
@@ -178,15 +230,6 @@ não são domínios reais, não há motivo para complicar com múltiplos hosts n
 mesma porta — cada serviço fica em uma porta HTTPS própria no mesmo ALB. Com
 um domínio real de verdade, o padrão recomendado é usar hostnames reais
 (`vote.dominio.com`, `result.dominio.com`) ambos na porta 443.
-
-**Certificado autoassinado**: `curl -k` e o navegador vão acusar "conexão não
-confiável" — esperado para autoassinado, não é um erro de configuração.
-
-**Voltando para LoadBalancer simples**: `--set gateway.enabled=false` desliga
-o Gateway e os Services de `vote`/`result` voltam a ser criados como
-`LoadBalancer` (usa o valor de `vote.service.type`/`result.service.type`, que
-por padrão agora é `ClusterIP` — ajuste também esses valores se desativar o
-gateway).
 
 **Aviso da própria AWS**: a documentação oficial do AWS Load Balancer
 Controller marca a combinação com Gateway API como não recomendada para
